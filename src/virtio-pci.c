@@ -1,5 +1,6 @@
 #include <fcntl.h>
 #include <linux/virtio_config.h>
+#include <linux/vhost.h>
 #include <stddef.h>
 #include <string.h>
 #include <unistd.h>

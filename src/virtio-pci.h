@@ -10,6 +10,8 @@
 #define VIRTIO_PCI_CAP_NUM 5
 #define VIRTIO_PCI_ISR_QUEUE 1
 
+#define VIRTIO_F_RING_PACKED		34
+
 struct virtio_pci_isr_cap {
     uint32_t isr_status;
 };

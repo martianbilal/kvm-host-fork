@@ -19,6 +19,7 @@ OBJS := \
 	virtq.o \
 	virtio-blk.o \
 	diskimg.o \
+	forkall-coop.o \
 	main.o
 OBJS := $(addprefix $(OUT)/,$(OBJS))
 deps := $(OBJS:%.o=%.o.d)
@@ -42,6 +43,10 @@ $(OUT)/ext4.img:
 check: $(BIN) $(LINUX_IMG) $(ROOTFS_IMG) $(OUT)/ext4.img
 	$(VECHO) "\nOnce the message 'Kernel panic' appears, press Ctrl-C to exit\n\n"
 	$(Q)sudo $(BIN) -k $(LINUX_IMG) -i $(ROOTFS_IMG) -d $(OUT)/ext4.img
+
+check_test: $(BIN) $(LINUX_IMG) $(ROOTFS_IMG) $(OUT)/ext4.img
+	$(VECHO) "\nOnce the message 'Kernel panic' appears, press Ctrl-C to exit\n\n"
+	$(Q)sudo $(BIN) -k $(LINUX_IMG) -d $(OUT)/ext4.img
 
 clean:
 	$(VECHO) "Cleaning...\n"

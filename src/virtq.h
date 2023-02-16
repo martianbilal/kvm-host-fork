@@ -4,6 +4,29 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+struct vring_packed_desc {
+	/* Buffer Address. */
+	__le64 addr;
+	/* Buffer Length. */
+	__le32 len;
+	/* Buffer ID. */
+	__le16 id;
+	/* The flags depending on descriptor type. */
+	__le16 flags;
+};
+
+struct vring_packed_desc_event {
+	/* Descriptor Ring Change Event Offset/Wrap Counter. */
+	__le16 off_wrap;
+	/* Descriptor Ring Change Event Flags. */
+	__le16 flags;
+};
+
+#define VRING_PACKED_EVENT_FLAG_ENABLE	0x0
+
+#define VRING_PACKED_DESC_F_USED	15
+#define VRING_PACKED_DESC_F_AVAIL	7
+
 struct virtq;
 
 struct virtq_ops {

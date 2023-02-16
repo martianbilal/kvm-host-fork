@@ -4,6 +4,7 @@
 #include <unistd.h>
 
 #include "err.h"
+#include "forkall-coop.h"
 #include "vm.h"
 
 static char *kernel_file = NULL, *initrd_file = NULL, *diskimg_file = NULL;
@@ -77,6 +78,7 @@ int main(int argc, char *argv[])
         }
     }
 
+    ski_forkall_initialize();
     set_input_mode();
 
     vm_t vm;
