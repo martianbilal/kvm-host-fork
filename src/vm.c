@@ -1,3 +1,7 @@
+#include <asm/kvm.h>
+#include <stdio.h>
+#include <sys/wait.h>
+#include "forkall-coop.h"
 #if !defined(__x86_64__) || !defined(__linux__)
 #error "This virtual machine requires Linux/x86_64."
 #endif
@@ -73,8 +77,16 @@ static void vm_init_cpu_id(vm_t *v)
     ioctl(v->vcpu_fd, KVM_SET_CPUID2, &kvm_cpuid);
 }
 
+int prefork_init(){
+    prefork_state = (pre_fork_state_t *)malloc(sizeof(pre_fork_state_t)); 
+    prefork_state->regs = malloc(sizeof(struct kvm_regs));
+    prefork_state->sregs = malloc(sizeof(struct kvm_sregs));
+    return 0;
+}
+
 int vm_init(vm_t *v)
 {
+    prefork_init();
     if ((v->kvm_fd = open("/dev/kvm", O_RDWR)) < 0)
         return throw_err("Failed to open /dev/kvm");
 
@@ -239,17 +251,125 @@ void vm_handle_mmio(vm_t *v, struct kvm_run *run)
                   run->mmio.phys_addr, run->mmio.len);
 }
 
+
+int do_pre_fork(vm_t *v){
+    struct kvm_regs *regs = malloc(sizeof(struct kvm_regs));
+    struct kvm_sregs *sregs = malloc(sizeof(struct kvm_sregs));
+    // get kvm_regs
+    if (ioctl(v->vcpu_fd, KVM_GET_REGS, regs) < 0){
+        exit(1);
+        return throw_err("Failed to get regs");
+    }
+    if (ioctl(v->vcpu_fd, KVM_GET_SREGS, sregs) < 0)
+        exit(1);
+        // return throw_err("Failed to get sregs");
+
+
+    prefork_state->regs = regs;
+    prefork_state->sregs = sregs;
+
+    
+    return 0;
+}
+
+int do_post_fork(vm_t *v){
+    struct kvm_regs *regs = prefork_state->regs;
+    struct kvm_sregs *sregs = prefork_state->sregs;
+
+    // create the kvm device
+    if ((v->kvm_fd = open("/dev/kvm", O_RDWR)) < 0)
+        return throw_err("Failed to open /dev/kvm");
+
+    if ((v->vm_fd = ioctl(v->kvm_fd, KVM_CREATE_VM, 0)) < 0)
+        return throw_err("Failed to create vm");
+
+    if (ioctl(v->vm_fd, KVM_SET_TSS_ADDR, 0xffffd000) < 0)
+        return throw_err("Failed to set TSS addr");
+
+    __u64 map_addr = 0xffffc000;
+    if (ioctl(v->vm_fd, KVM_SET_IDENTITY_MAP_ADDR, &map_addr) < 0)
+        return throw_err("Failed to set identity map address");
+
+    if (ioctl(v->vm_fd, KVM_CREATE_IRQCHIP, 0) < 0)
+        return throw_err("Failed to create IRQ chip");
+
+    struct kvm_pit_config pit = {.flags = 0};
+    if (ioctl(v->vm_fd, KVM_CREATE_PIT2, &pit) < 0)
+        return throw_err("Failed to create i8254 interval timer");
+
+    v->mem = mmap(NULL, RAM_SIZE, PROT_READ | PROT_WRITE,
+                  MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (!v->mem)
+        return throw_err("Failed to mmap vm memory");
+
+    struct kvm_userspace_memory_region region = {
+        .slot = 0,
+        .flags = 0,
+        .guest_phys_addr = 0,
+        .memory_size = RAM_SIZE,
+        .userspace_addr = (__u64) v->mem,
+    };
+    if (ioctl(v->vm_fd, KVM_SET_USER_MEMORY_REGION, &region) < 0)
+        return throw_err("Failed to set user memory region");
+
+    if ((v->vcpu_fd = ioctl(v->vm_fd, KVM_CREATE_VCPU, 0)) < 0)
+        return throw_err("Failed to create vcpu");
+
+    vm_init_regs(v);
+
+
+    // set kvm_sreg
+    // printf("sregs->cr0 = %llx\n", prefork_state->sregs->cr0);
+    if (ioctl(v->vcpu_fd, KVM_SET_SREGS, sregs) < 0){}
+    if (ioctl(v->vcpu_fd, KVM_GET_SREGS, sregs) < 0)
+        return throw_err("Failed to set sregs");
+    
+    // set kvm_regs
+    if (ioctl(v->vcpu_fd, KVM_SET_REGS, regs) < 0)
+        return throw_err("Failed to set regs");
+    vm_init_cpu_id(v);
+    int run_size = ioctl(v->kvm_fd, KVM_GET_VCPU_MMAP_SIZE, 0);
+    struct kvm_run *run =
+        mmap(0, run_size, PROT_READ | PROT_WRITE, MAP_SHARED, v->vcpu_fd, 0);
+    int err = ioctl(v->vcpu_fd, KVM_RUN, 0);
+    if (err < 0 && (errno != EINTR && errno != EAGAIN)) {
+        munmap(run, run_size);
+        return throw_err("Failed to execute kvm_run");
+    }
+
+    printf("======================CHILD REACHED HERE=====================\n");
+
+    return 0;
+}
+
 int vm_run(vm_t *v)
 {
+    int ret = 0;
     int run_size = ioctl(v->kvm_fd, KVM_GET_VCPU_MMAP_SIZE, 0);
     struct kvm_run *run =
         mmap(0, run_size, PROT_READ | PROT_WRITE, MAP_SHARED, v->vcpu_fd, 0);
 
+
+    int i = 0;
+    
     while (1) {
+        i = i + 1;
         int err = ioctl(v->vcpu_fd, KVM_RUN, 0);
         if (err < 0 && (errno != EINTR && errno != EAGAIN)) {
             munmap(run, run_size);
             return throw_err("Failed to execute kvm_run");
+        }
+
+        if(i == 10000){
+            do_pre_fork(v);
+            ret = ski_forkall_master();
+            if(ret == 0){
+                printf("Forked\n");
+                do_post_fork(v);
+            } else {
+                printf("master\n");
+                waitpid(ret, NULL, 0);
+            }
         }
         switch (run->exit_reason) {
         case KVM_EXIT_IO:

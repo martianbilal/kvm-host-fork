@@ -2,6 +2,7 @@
 
 #include <asm/prctl.h>
 #include <sys/prctl.h>
+#include <unistd.h>
 
 
 // Testing variables
@@ -45,7 +46,7 @@ static int ski_create_thread_custom_stack(forkall_thread *t, pthread_t *thread, 
 */
 
 // Uncomment to enable debugging
-// #define FORKALL_DEBUGGING
+#define FORKALL_DEBUGGING
 
 pid_t ski_gettid(void){
     pid_t own_tid = syscall(SYS_gettid);
@@ -279,6 +280,7 @@ void ski_forkall_slave(int *did_fork, int *is_child){
 
 	int tid = ski_gettid();
 	forkall_thread *t = ski_thread_find(tid);
+	
 	assert(t); // If this fails it's probably because the thread main did not call the forkall_thread_add_self() function forkall_thread_add_self(); 
 	memcpy(t->stack, t->stack_min, FORKALL_THREAD_STACK_SIZE);
 	int restoring = setjmp(t->forkall_env);
@@ -443,7 +445,7 @@ pid_t ski_forkall_master(){
 	// if((pid = 38429)){
 	if((pid = fork())){
 		// Parent
-		ski_log_forkall("Parent (child pid = %d)\n", pid);
+		ski_log_forkall("Parent [%d] (child pid = %d)\n", getpid(), pid);
 		return pid;
 	}else{
 		// Child process

@@ -1,11 +1,13 @@
 #pragma once
 
+#include <asm/kvm.h>
 #define RAM_SIZE (1 << 30)
 #define KERNEL_OPTS "console=ttyS0 pci=conf1"
 
 #include "pci.h"
 #include "serial.h"
 #include "virtio-blk.h"
+#include <linux/kvm.h>
 
 typedef struct {
     int kvm_fd, vm_fd, vcpu_fd;
@@ -17,6 +19,15 @@ typedef struct {
     struct diskimg diskimg;
     struct virtio_blk_dev virtio_blk_dev;
 } vm_t;
+
+
+typedef  struct {
+    int kvm_fd, vm_fd, vcpu_fd;
+    struct kvm_regs *regs;
+    struct kvm_sregs *sregs;
+} pre_fork_state_t;
+
+pre_fork_state_t *prefork_state;
 
 int vm_init(vm_t *v);
 int vm_load_image(vm_t *v, const char *image_path);

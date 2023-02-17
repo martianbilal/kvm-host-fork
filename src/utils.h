@@ -1,3 +1,5 @@
+#include "forkall-coop.h"
+
 #ifndef UTILS_H
 #define UTILS_H
 

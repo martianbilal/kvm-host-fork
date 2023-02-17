@@ -11,7 +11,7 @@
 #include "err.h"
 #include "serial.h"
 #include "utils.h"
-#include "vm.h"
+#include "vm.h""
 
 #define SERIAL_IRQ 4
 #define IO_READ8(data) *((uint8_t *) data)
@@ -76,9 +76,20 @@ static volatile bool thread_stop = false;
 
 static void *serial_thread(serial_dev_t *s)
 {
+    int did_fork = 0;
+    int is_child = 0;
+    ski_forkall_thread_add_self_tid();
     while (!__atomic_load_n(&thread_stop, __ATOMIC_RELAXED)) {
-        if (serial_readable(s, -1))
-            pthread_kill((pthread_t) s->main_tid, SIGUSR1);
+        if(!did_fork){
+            ski_forkall_slave(&did_fork, &is_child);
+            for(int i = 0; i < 3000; i++){
+                int j = 3 * 4 - 1;
+            }
+        } else if (did_fork){
+            if (serial_readable(s, -1))
+                pthread_kill((pthread_t) s->main_tid, SIGUSR1);
+        }
+        
     }
 
     return NULL;
@@ -218,7 +229,8 @@ int serial_init(serial_dev_t *s)
         .main_tid = pthread_self(),
         .infd = STDIN_FILENO,
     };
-    pthread_create(&s->worker_tid, NULL, (void *) serial_thread, (void *) s);
+    // pthread_create(&s->worker_tid, NULL, (void *) serial_thread, (void *) s);
+    ski_forkall_pthread_create(&s->worker_tid, NULL, (void *) serial_thread, (void *) s);
 
     /* Unlock the timer signal, so that timer notification
      * can be delivered.

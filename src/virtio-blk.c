@@ -8,6 +8,7 @@
 #include <unistd.h>
 
 #include "err.h"
+#include "forkall-coop.h"
 #include "utils.h"
 #include "virtio-blk.h"
 #include "vm.h"
@@ -34,9 +35,21 @@ static volatile bool thread_stop = false;
 
 static void *virtio_blk_thread(struct virtio_blk_dev *dev)
 {
+    int did_fork = 0;
+    int is_child = 0;
+    ski_forkall_thread_add_self_tid();
     while (!__atomic_load_n(&thread_stop, __ATOMIC_RELAXED)) {
-        if (virtio_blk_virtq_available(dev, -1))
-            pthread_kill((pthread_t) dev->vq_avail_thread, SIGUSR1);
+        if(!did_fork){
+            ski_forkall_slave(&did_fork, &is_child);
+            for(int i = 0; i < 3000; i++){
+                int j = 3 * 4 - 1;
+            }
+        }
+        if(did_fork){
+            if (virtio_blk_virtq_available(dev, -1))
+                pthread_kill((pthread_t) dev->vq_avail_thread, SIGUSR1);
+        }
+
     }
 
     return NULL;
@@ -47,9 +60,19 @@ static void *virtio_blk_vq_avail_handler(void *arg)
     struct virtq *vq = (struct virtq *) arg;
     struct virtio_blk_dev *dev = (struct virtio_blk_dev *) vq->dev;
     uint64_t n;
-
+    int did_fork = 0;
+    int is_child = 0;
+    ski_forkall_thread_add_self_tid();
     while (read(dev->ioeventfd, &n, sizeof(n))) {
-        virtq_handle_avail(vq);
+        if(!did_fork){
+            ski_forkall_slave(&did_fork, &is_child);
+            for(int i = 0; i < 3000; i++){
+                int j = 3 * 4 - 1;
+            }
+        }
+        if(did_fork){
+            virtq_handle_avail(vq);
+        }
     }
     return NULL;
 }
@@ -72,7 +95,9 @@ static void virtio_blk_enable_vq(struct virtq *vq)
     uint64_t addr = virtio_pci_get_notify_addr(&dev->virtio_pci_dev, vq);
     vm_ioeventfd_register(v, dev->ioeventfd, addr,
                           dev->virtio_pci_dev.notify_cap->cap.length, 0);
-    pthread_create(&dev->vq_avail_thread, NULL, virtio_blk_vq_avail_handler,
+    // pthread_create(&dev->vq_avail_thread, NULL, virtio_blk_vq_avail_handler,
+                //    (void *) vq);
+    ski_forkall_pthread_create(&dev->vq_avail_thread, NULL, virtio_blk_vq_avail_handler,
                    (void *) vq);
 }
 
@@ -175,7 +200,9 @@ void virtio_blk_init_pci(struct virtio_blk_dev *virtio_blk_dev,
     virtio_pci_set_virtq(dev, virtio_blk_dev->vq, VIRTIO_BLK_VIRTQ_NUM);
     virtio_pci_add_feature(dev, 0);
     virtio_pci_enable(dev);
-    pthread_create(&virtio_blk_dev->worker_thread, NULL,
+    // pthread_create(&virtio_blk_dev->worker_thread, NULL,
+                //    (void *) virtio_blk_thread, (void *) virtio_blk_dev);
+    ski_forkall_pthread_create(&virtio_blk_dev->worker_thread, NULL,
                    (void *) virtio_blk_thread, (void *) virtio_blk_dev);
 }
 
