@@ -368,7 +368,7 @@ int vm_run(vm_t *v)
                 do_post_fork(v);
             } else {
                 printf("master\n");
-                waitpid(ret, NULL, 0);
+                // waitpid(ret, NULL, 0);
             }
         }
         switch (run->exit_reason) {
