@@ -8,6 +8,7 @@
 #include "serial.h"
 #include "virtio-blk.h"
 #include <linux/kvm.h>
+#include <signal.h>
 
 typedef struct {
     int kvm_fd, vm_fd, vcpu_fd;
@@ -27,9 +28,13 @@ typedef  struct {
     struct kvm_sregs *sregs;
     struct kvm_ioeventfd *ioeventfd;
     struct kvm_irqfd *irqfd;
+    struct sigaction *sigact;
 } pre_fork_state_t;
 
 pre_fork_state_t *prefork_state;
+
+void handler(int sig, siginfo_t *si, void *uc);
+
 
 int vm_init(vm_t *v);
 int vm_load_image(vm_t *v, const char *image_path);

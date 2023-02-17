@@ -278,6 +278,9 @@ int do_post_fork(vm_t *v){
     struct kvm_irqfd *irqfd = prefork_state->irqfd;
     struct kvm_ioeventfd *ioeventfd = prefork_state->ioeventfd;
 
+    close(v->kvm_fd);
+    close(v->vm_fd);
+    close(v->vcpu_fd);
     // create the kvm device
     if ((v->kvm_fd = open("/dev/kvm", O_RDWR)) < 0)
         return throw_err("Failed to open /dev/kvm");
@@ -324,7 +327,7 @@ int do_post_fork(vm_t *v){
 
     // set ioeventfd
     // not needed until avail_thread is created
-    if(ioctl(v->vm_fd, KVM_IOEVENTFD, ioeventfd) < 0){}
+    // if(ioctl(v->vm_fd, KVM_IOEVENTFD, ioeventfd) < 0){}
         // return throw_err("Failed to set ioeventfd");
 
 
@@ -395,8 +398,7 @@ int do_post_fork(vm_t *v){
     
     
     int run_size = ioctl(v->kvm_fd, KVM_GET_VCPU_MMAP_SIZE, 0);
-    struct kvm_run *run =
-        mmap(0, run_size, PROT_READ | PROT_WRITE, MAP_SHARED, v->vcpu_fd, 0);
+    struct kvm_run *run = mmap(0, run_size, PROT_READ | PROT_WRITE, MAP_SHARED, v->vcpu_fd, 0);
     
 
     printf("======================CHILD REACHED HERE=====================\n");
@@ -406,6 +408,8 @@ int do_post_fork(vm_t *v){
 
 void reset_input_mode();
 void set_input_mode();
+
+
 
 int vm_run(vm_t *v)
 {
@@ -436,6 +440,11 @@ int vm_run(vm_t *v)
                 // exit(0);
                 // sleep(6);
                 // reset_input_mode();
+                struct sigaction sa = {.sa_flags = SA_SIGINFO, .sa_sigaction = handler};
+                sigemptyset(&sa.sa_mask);
+                if (sigaction(SIGUSR1, &sa, NULL) == -1)
+                    return throw_err("Failed to create signal handler");
+                assert(sigaction(SIGUSR1, prefork_state->sigact, NULL) != -1);
 
             } else {
                 // close(21);
@@ -506,7 +515,7 @@ void vm_irqfd_register(vm_t *v, int fd, int gsi, int flags)
     irqfd->flags = flags;
     prefork_state->irqfd = irqfd;
 
-    if (ioctl(v->vm_fd, KVM_IRQFD, &irqfd) < 0)
+    if (ioctl(v->vm_fd, KVM_IRQFD, irqfd) < 0)
         throw_err("Failed to set the status of IRQFD");
 }
 
@@ -532,7 +541,7 @@ void vm_ioeventfd_register(vm_t *v,
 
     prefork_state->ioeventfd = ioeventfd;
 
-    if (ioctl(v->vm_fd, KVM_IOEVENTFD, &ioeventfd) < 0)
+    if (ioctl(v->vm_fd, KVM_IOEVENTFD, ioeventfd) < 0)
         throw_err("Failed to set the status of IOEVENTFD");
 }
 

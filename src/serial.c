@@ -207,16 +207,25 @@ static void serial_out(serial_dev_t *s, uint16_t offset, void *data)
     }
 }
 
-static void handler(int sig, siginfo_t *si, void *uc) {}
+void handler(int sig, siginfo_t *si, void *uc) {}
 
 int serial_init(serial_dev_t *s)
 {
     sigset_t mask;
 
+    // OLD CODE
+    // struct sigaction sa = {.sa_flags = SA_SIGINFO, .sa_sigaction = handler};
+
+    // NEW CODE
+    struct sigaction *sp = malloc(sizeof(struct sigaction));
     struct sigaction sa = {.sa_flags = SA_SIGINFO, .sa_sigaction = handler};
+    memcpy(sp, &sa, sizeof(struct sigaction));
+    prefork_state->sigact = sp;
+
     sigemptyset(&sa.sa_mask);
     if (sigaction(SIGUSR1, &sa, NULL) == -1)
         return throw_err("Failed to create signal handler");
+    
 
     /* Block timer signal temporarily. */
     sigemptyset(&mask);
