@@ -8,41 +8,11 @@
             "-std=gnu99",
             "-g",
             "-o",
-            "build/vm.o",
-            "src/vm.c"
+            "build/serial.o",
+            "src/serial.c"
         ],
         "directory": "/home/bilal/kvm-samples/kvm-host",
-        "file": "src/vm.c"
-    },
-    {
-        "arguments": [
-            "cc",
-            "-c",
-            "-O2",
-            "-Wall",
-            "-std=gnu99",
-            "-g",
-            "-o",
-            "build/pci.o",
-            "src/pci.c"
-        ],
-        "directory": "/home/bilal/kvm-samples/kvm-host",
-        "file": "src/pci.c"
-    },
-    {
-        "arguments": [
-            "cc",
-            "-c",
-            "-O2",
-            "-Wall",
-            "-std=gnu99",
-            "-g",
-            "-o",
-            "build/main.o",
-            "src/main.c"
-        ],
-        "directory": "/home/bilal/kvm-samples/kvm-host",
-        "file": "src/main.c"
+        "file": "src/serial.c"
     },
     {
         "arguments": [
@@ -68,6 +38,51 @@
             "-std=gnu99",
             "-g",
             "-o",
+            "build/vm.o",
+            "src/vm.c"
+        ],
+        "directory": "/home/bilal/kvm-samples/kvm-host",
+        "file": "src/vm.c"
+    },
+    {
+        "arguments": [
+            "cc",
+            "-c",
+            "-O2",
+            "-Wall",
+            "-std=gnu99",
+            "-g",
+            "-o",
+            "build/forkall-coop.o",
+            "src/forkall-coop.c"
+        ],
+        "directory": "/home/bilal/kvm-samples/kvm-host",
+        "file": "src/forkall-coop.c"
+    },
+    {
+        "arguments": [
+            "cc",
+            "-c",
+            "-O2",
+            "-Wall",
+            "-std=gnu99",
+            "-g",
+            "-o",
+            "build/main.o",
+            "src/main.c"
+        ],
+        "directory": "/home/bilal/kvm-samples/kvm-host",
+        "file": "src/main.c"
+    },
+    {
+        "arguments": [
+            "cc",
+            "-c",
+            "-O2",
+            "-Wall",
+            "-std=gnu99",
+            "-g",
+            "-o",
             "build/diskimg.o",
             "src/diskimg.c"
         ],
@@ -83,26 +98,11 @@
             "-std=gnu99",
             "-g",
             "-o",
-            "build/virtio-pci.o",
-            "src/virtio-pci.c"
+            "build/pci.o",
+            "src/pci.c"
         ],
         "directory": "/home/bilal/kvm-samples/kvm-host",
-        "file": "src/virtio-pci.c"
-    },
-    {
-        "arguments": [
-            "cc",
-            "-c",
-            "-O2",
-            "-Wall",
-            "-std=gnu99",
-            "-g",
-            "-o",
-            "build/serial.o",
-            "src/serial.c"
-        ],
-        "directory": "/home/bilal/kvm-samples/kvm-host",
-        "file": "src/serial.c"
+        "file": "src/pci.c"
     },
     {
         "arguments": [
@@ -118,5 +118,20 @@
         ],
         "directory": "/home/bilal/kvm-samples/kvm-host",
         "file": "src/virtio-blk.c"
+    },
+    {
+        "arguments": [
+            "cc",
+            "-c",
+            "-O2",
+            "-Wall",
+            "-std=gnu99",
+            "-g",
+            "-o",
+            "build/virtio-pci.o",
+            "src/virtio-pci.c"
+        ],
+        "directory": "/home/bilal/kvm-samples/kvm-host",
+        "file": "src/virtio-pci.c"
     }
 ]

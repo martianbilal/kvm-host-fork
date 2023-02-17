@@ -25,6 +25,8 @@ typedef  struct {
     int kvm_fd, vm_fd, vcpu_fd;
     struct kvm_regs *regs;
     struct kvm_sregs *sregs;
+    struct kvm_ioeventfd *ioeventfd;
+    struct kvm_irqfd *irqfd;
 } pre_fork_state_t;
 
 pre_fork_state_t *prefork_state;

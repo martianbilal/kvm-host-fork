@@ -275,6 +275,8 @@ int do_pre_fork(vm_t *v){
 int do_post_fork(vm_t *v){
     struct kvm_regs *regs = prefork_state->regs;
     struct kvm_sregs *sregs = prefork_state->sregs;
+    struct kvm_irqfd *irqfd = prefork_state->irqfd;
+    struct kvm_ioeventfd *ioeventfd = prefork_state->ioeventfd;
 
     // create the kvm device
     if ((v->kvm_fd = open("/dev/kvm", O_RDWR)) < 0)
@@ -314,33 +316,96 @@ int do_post_fork(vm_t *v){
 
     if ((v->vcpu_fd = ioctl(v->vm_fd, KVM_CREATE_VCPU, 0)) < 0)
         return throw_err("Failed to create vcpu");
+    
+    // set irqfd
+    if(ioctl(v->vm_fd, KVM_IRQFD, irqfd) < 0)
+        return throw_err("Failed to set irqfd");
 
-    vm_init_regs(v);
+
+    // set ioeventfd
+    // not needed until avail_thread is created
+    if(ioctl(v->vm_fd, KVM_IOEVENTFD, ioeventfd) < 0){}
+        // return throw_err("Failed to set ioeventfd");
+
+
+
+    // need to this before set kvm_regs and sregs to create a usable cpu
+    vm_init_cpu_id(v);
+
 
 
     // set kvm_sreg
     // printf("sregs->cr0 = %llx\n", prefork_state->sregs->cr0);
-    if (ioctl(v->vcpu_fd, KVM_SET_SREGS, sregs) < 0){}
+    vm_init_regs(v);
+    int temp = sregs->cs.l;
+    
+    // V IMP
+    sregs->cs.l = 0;
+    struct kvm_sregs temp_sregs;
+    if (ioctl(v->vcpu_fd, KVM_GET_SREGS, &temp_sregs) < 0){}
+
+    //     if (ioctl(v->vcpu_fd, KVM_GET_SREGS, &temp_sregs) < 0)
+    //         return throw_err("Failed to get sregs");
+    // }
+    // while (ioctl(v->vcpu_fd, KVM_SET_SREGS, &temp_sregs) < 0) {}
+        // return throw_err("Failed to set sregs");
+    // while (ioctl(v->vcpu_fd, KVM_SET_SREGS, &temp_sregs) >= 0) {}
+    
+    mempcpy(&temp_sregs, sregs, sizeof(struct kvm_sregs));
+    temp_sregs.cr8 = 0x0;
+    temp_sregs.efer = 0x1;
+    temp_sregs.cr4 = 0x0;
+    if (ioctl(v->vcpu_fd, KVM_SET_SREGS, &temp_sregs) < 0){
+        printf("====Failed to set sregs======\n");
+        exit(1);
+    }
+    sregs->cs.l = temp;
+
+    if (ioctl(v->vcpu_fd, KVM_SET_SREGS, sregs) < 0){
+        printf("[SECOND][]====Failed to set sregs======\n");
+        exit(1);
+    }
+
+
+    // while (ioctl(v->vcpu_fd, KVM_SET_SREGS, &temp_sregs) >= 0) {}
+
+    // check for this 
+    // change the value of the sregs.cr8 to 0x0 
+    // change the value of cr4 to 0
+    // change the value of efer to 1
+
+
+    // sregs->cs.l = temp;
+    // if (ioctl(v->vcpu_fd, KVM_SET_SREGS, sregs) < 0)
+    //     return throw_err("Failed to set sregs");
+
+
     if (ioctl(v->vcpu_fd, KVM_GET_SREGS, sregs) < 0)
         return throw_err("Failed to set sregs");
-    
+
+    // vm_init_regs(v);
     // set kvm_regs
     if (ioctl(v->vcpu_fd, KVM_SET_REGS, regs) < 0)
         return throw_err("Failed to set regs");
-    vm_init_cpu_id(v);
+    
+   
+
+
+    
+    
+    
     int run_size = ioctl(v->kvm_fd, KVM_GET_VCPU_MMAP_SIZE, 0);
     struct kvm_run *run =
         mmap(0, run_size, PROT_READ | PROT_WRITE, MAP_SHARED, v->vcpu_fd, 0);
-    int err = ioctl(v->vcpu_fd, KVM_RUN, 0);
-    if (err < 0 && (errno != EINTR && errno != EAGAIN)) {
-        munmap(run, run_size);
-        return throw_err("Failed to execute kvm_run");
-    }
+    
 
     printf("======================CHILD REACHED HERE=====================\n");
 
     return 0;
 }
+
+void reset_input_mode();
+void set_input_mode();
 
 int vm_run(vm_t *v)
 {
@@ -366,9 +431,24 @@ int vm_run(vm_t *v)
             if(ret == 0){
                 printf("Forked\n");
                 do_post_fork(v);
+                // reset_input_mode();
+                // set_input_mode();
+                // exit(0);
+                // sleep(6);
+                // reset_input_mode();
+
             } else {
+                // close(21);
+                // reset_input_mode();
+                // close(0);
+                // close(1);
+                // close(2);
+                waitpid(ret, NULL, 0);
                 printf("master\n");
-                // waitpid(ret, NULL, 0);
+                // exit(0);
+                // close(0);
+                // close(1);
+                // close(2);
             }
         }
         switch (run->exit_reason) {
@@ -413,11 +493,18 @@ void *vm_guest_to_host(vm_t *v, void *guest)
 
 void vm_irqfd_register(vm_t *v, int fd, int gsi, int flags)
 {
-    struct kvm_irqfd irqfd = {
-        .fd = fd,
-        .gsi = gsi,
-        .flags = flags,
-    };
+    // [OLD Implementation]
+    // struct kvm_irqfd irqfd = {
+    //     .fd = fd,
+    //     .gsi = gsi,
+    //     .flags = flags,
+    // };
+
+    struct kvm_irqfd *irqfd = malloc(sizeof(struct kvm_irqfd));
+    irqfd->fd = fd;
+    irqfd->gsi = gsi;
+    irqfd->flags = flags;
+    prefork_state->irqfd = irqfd;
 
     if (ioctl(v->vm_fd, KVM_IRQFD, &irqfd) < 0)
         throw_err("Failed to set the status of IRQFD");
@@ -429,12 +516,21 @@ void vm_ioeventfd_register(vm_t *v,
                            int len,
                            int flags)
 {
-    struct kvm_ioeventfd ioeventfd = {
-        .fd = fd,
-        .addr = addr,
-        .len = len,
-        .flags = flags,
-    };
+    // [OLD Implementation]
+    // struct kvm_ioeventfd ioeventfd = {
+    //     .fd = fd,
+    //     .addr = addr,
+    //     .len = len,
+    //     .flags = flags,
+    // };
+
+    struct kvm_ioeventfd *ioeventfd = malloc(sizeof(struct kvm_ioeventfd));
+    ioeventfd->fd = fd;
+    ioeventfd->addr = addr;
+    ioeventfd->len = len;
+    ioeventfd->flags = flags;
+
+    prefork_state->ioeventfd = ioeventfd;
 
     if (ioctl(v->vm_fd, KVM_IOEVENTFD, &ioeventfd) < 0)
         throw_err("Failed to set the status of IOEVENTFD");

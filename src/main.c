@@ -24,12 +24,12 @@ static void usage(const char *execpath)
 
 static struct termios saved_attributes;
 
-static void reset_input_mode(void)
+void reset_input_mode(void)
 {
     tcsetattr(STDIN_FILENO, TCSANOW, &saved_attributes);
 }
 
-static void set_input_mode(void)
+void set_input_mode(void)
 {
     struct termios tattr;
     /* Make sure stdin is a terminal. */
