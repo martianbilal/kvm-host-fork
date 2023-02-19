@@ -282,6 +282,8 @@ int do_pre_fork(vm_t *v){
     return 0;
 }
 
+struct kvm_run *run;
+
 int do_post_fork(vm_t *v){
     struct kvm_regs *regs = prefork_state->regs;
     struct kvm_sregs *sregs = prefork_state->sregs;
@@ -312,10 +314,10 @@ int do_post_fork(vm_t *v){
     if (ioctl(v->vm_fd, KVM_CREATE_PIT2, &pit) < 0)
         return throw_err("Failed to create i8254 interval timer");
 
-    v->mem = mmap(NULL, RAM_SIZE, PROT_READ | PROT_WRITE,
-                  MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-    if (!v->mem)
-        return throw_err("Failed to mmap vm memory");
+    // v->mem = mmap(NULL, RAM_SIZE, PROT_READ | PROT_WRITE,
+    //               MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    // if (!v->mem)
+    //     return throw_err("Failed to mmap vm memory");
 
     struct kvm_userspace_memory_region region = {
         .slot = 0,
@@ -330,9 +332,6 @@ int do_post_fork(vm_t *v){
     if ((v->vcpu_fd = ioctl(v->vm_fd, KVM_CREATE_VCPU, 0)) < 0)
         return throw_err("Failed to create vcpu");
     
-    // set irqfd
-    if(ioctl(v->vm_fd, KVM_IRQFD, irqfd) < 0)
-        return throw_err("Failed to set irqfd");
 
 
     // set ioeventfd
@@ -408,8 +407,23 @@ int do_post_fork(vm_t *v){
     
     
     int run_size = ioctl(v->kvm_fd, KVM_GET_VCPU_MMAP_SIZE, 0);
-    struct kvm_run *run = mmap(0, run_size, PROT_READ | PROT_WRITE, MAP_SHARED, v->vcpu_fd, 0);
+    struct kvm_run *temp_run = run;
     
+    run = mmap(0, run_size, PROT_READ | PROT_WRITE, MAP_SHARED, v->vcpu_fd, 0);
+    if(run == MAP_FAILED)
+        exit(1);
+
+    memcpy(run, temp_run, run_size);
+
+
+    printf("[PRE]RUN_EXIT REASON = %d\n", run->exit_reason);
+    ioctl(v->vcpu_fd, KVM_RUN, 0);
+    printf("RUN_EXIT REASON = %d\n", run->exit_reason);
+    
+    // set irqfd
+    if(ioctl(v->vm_fd, KVM_IRQFD, irqfd) < 0)
+        return throw_err("Failed to set irqfd");
+
 
     printf("======================CHILD REACHED HERE=====================\n");
 
@@ -426,7 +440,7 @@ int vm_run(vm_t *v)
     int ret = 0;
     sigset_t mask;
     int run_size = ioctl(v->kvm_fd, KVM_GET_VCPU_MMAP_SIZE, 0);
-    struct kvm_run *run =
+    run =
         mmap(0, run_size, PROT_READ | PROT_WRITE, MAP_SHARED, v->vcpu_fd, 0);
 
 
@@ -514,7 +528,8 @@ int vm_run(vm_t *v)
             serial_console(&v->serial);
             break;
         case KVM_EXIT_SHUTDOWN:
-            printf("shutdown\n");
+            // printf("shutdown\n");
+            break;
             munmap(run, run_size);
             return 0;
         default:
