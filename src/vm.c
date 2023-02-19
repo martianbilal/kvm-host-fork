@@ -91,6 +91,10 @@ int prefork_init(){
     prefork_state = (pre_fork_state_t *)malloc(sizeof(pre_fork_state_t)); 
     prefork_state->regs = malloc(sizeof(struct kvm_regs));
     prefork_state->sregs = malloc(sizeof(struct kvm_sregs));
+    prefork_state->irqchip = malloc(sizeof(struct kvm_irqchip) * 3);
+    prefork_state->irqchip[0].chip_id = KVM_IRQCHIP_PIC_MASTER;
+    prefork_state->irqchip[1].chip_id = KVM_IRQCHIP_PIC_SLAVE;
+    prefork_state->irqchip[2].chip_id = KVM_IRQCHIP_IOAPIC;
     return 0;
 }
 
@@ -261,10 +265,37 @@ void vm_handle_mmio(vm_t *v, struct kvm_run *run)
                   run->mmio.phys_addr, run->mmio.len);
 }
 
+// save the irqchip to KVM
+int prefork_kvm_irqchip(vm_t *v){
+    // struct kvm_irqchip *irqchip = malloc(sizeof(struct kvm_irqchip));
+    for(int i = 0; i < 3; i++){
+        if (ioctl(v->vm_fd, KVM_GET_IRQCHIP, &(prefork_state->irqchip[i])) < 0) {
+            perror("Failed to get irqchip");
+            exit(1);
+        }
+    }
+    return 0;
+}
+
+
+// restore the IRQCHIP to KVM
+int postfork_kvm_irqchip(vm_t *v){
+    for(int i = 0; i < 3; i++){
+        assert(prefork_state->irqchip[i].chip_id == i);
+        if (ioctl(v->vm_fd, KVM_SET_IRQCHIP, &(prefork_state->irqchip[i])) < 0) {
+            perror("Failed to set irqchip");
+            exit(1);
+        }
+    }
+    return 0;
+}
 
 int do_pre_fork(vm_t *v){
     struct kvm_regs *regs = malloc(sizeof(struct kvm_regs));
     struct kvm_sregs *sregs = malloc(sizeof(struct kvm_sregs));
+
+    prefork_kvm_irqchip(v);
+
     // get kvm_regs
     if (ioctl(v->vcpu_fd, KVM_GET_REGS, regs) < 0){
         exit(1);
@@ -277,7 +308,6 @@ int do_pre_fork(vm_t *v){
 
     prefork_state->regs = regs;
     prefork_state->sregs = sregs;
-
     
     return 0;
 }
@@ -328,6 +358,14 @@ int do_post_fork(vm_t *v){
     };
     if (ioctl(v->vm_fd, KVM_SET_USER_MEMORY_REGION, &region) < 0)
         return throw_err("Failed to set user memory region");
+    
+
+    postfork_kvm_irqchip(v);
+
+    // set irqfd
+    if(ioctl(v->vm_fd, KVM_IRQFD, irqfd) < 0)
+        return throw_err("Failed to set irqfd");
+
 
     if ((v->vcpu_fd = ioctl(v->vm_fd, KVM_CREATE_VCPU, 0)) < 0)
         return throw_err("Failed to create vcpu");
@@ -413,16 +451,14 @@ int do_post_fork(vm_t *v){
     if(run == MAP_FAILED)
         exit(1);
 
-    memcpy(run, temp_run, run_size);
+    // memcpy(run, temp_run, run_size);
 
 
     printf("[PRE]RUN_EXIT REASON = %d\n", run->exit_reason);
-    ioctl(v->vcpu_fd, KVM_RUN, 0);
+    // ioctl(v->vcpu_fd, KVM_RUN, 0);
     printf("RUN_EXIT REASON = %d\n", run->exit_reason);
     
-    // set irqfd
-    if(ioctl(v->vm_fd, KVM_IRQFD, irqfd) < 0)
-        return throw_err("Failed to set irqfd");
+
 
 
     printf("======================CHILD REACHED HERE=====================\n");
@@ -468,11 +504,14 @@ int vm_run(vm_t *v)
                 // exit(0);
                 // sleep(6);
                 // reset_input_mode();
+                // serial_exit(&v->serial);
+                // serial_init(&v->serial);
                 struct sigaction sa = {.sa_flags = SA_SIGINFO, .sa_sigaction = handler};
                 sigemptyset(&sa.sa_mask);
                 if (sigaction(SIGUSR1, &sa, NULL) == -1)
                     return throw_err("Failed to create signal handler");
                 flag = 1;
+                exit(0);
                 
                 // exit(0);
                 // assert(sigaction(SIGUSR1, prefork_state->sigact, NULL) != -1);
@@ -510,6 +549,10 @@ int vm_run(vm_t *v)
             return throw_err("Failed to execute kvm_run");
         }
 
+        if(!flag) {
+            if(i % 1000 == 0)
+                printf("[%d]reason: %d\n", i, run->exit_reason);
+        }
 
         // if (sigprocmask(SIG_UNBLOCK, &mask, NULL) == -1)
         //     return throw_err("Failed to unblock timer signal");

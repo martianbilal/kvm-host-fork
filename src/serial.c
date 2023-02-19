@@ -129,6 +129,7 @@ void serial_console(serial_dev_t *s)
             break;
         priv->lsr |= UART_LSR_DR;
     }
+    printf("serial_console: %d", priv->lsr);
     serial_update_irq(s);
 }
 
