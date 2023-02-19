@@ -1,4 +1,5 @@
 #include <asm/kvm.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <sys/wait.h>
 #include "forkall-coop.h"
@@ -53,6 +54,15 @@ static int vm_init_regs(vm_t *v)
         return throw_err("Failed to set registers");
 
     return 0;
+}
+
+
+void reset_signal_handlers() {
+  struct sigaction sa = {0};
+  sa.sa_handler = SIG_DFL;  // Set signal handler to default (ignore).
+  sigemptyset(&sa.sa_mask);
+  sigaction(SIGUSR1, &sa, NULL); // Replace SIGINT handler with default.
+  // Add more signals as needed.
 }
 
 #define N_ENTRIES 100
@@ -414,26 +424,30 @@ void set_input_mode();
 int vm_run(vm_t *v)
 {
     int ret = 0;
+    sigset_t mask;
     int run_size = ioctl(v->kvm_fd, KVM_GET_VCPU_MMAP_SIZE, 0);
     struct kvm_run *run =
         mmap(0, run_size, PROT_READ | PROT_WRITE, MAP_SHARED, v->vcpu_fd, 0);
 
 
     int i = 0;
+    int flag = 0;
     
     while (1) {
         i = i + 1;
-        int err = ioctl(v->vcpu_fd, KVM_RUN, 0);
-        if (err < 0 && (errno != EINTR && errno != EAGAIN)) {
-            munmap(run, run_size);
-            return throw_err("Failed to execute kvm_run");
-        }
 
         if(i == 10000){
             do_pre_fork(v);
             ret = ski_forkall_master();
             if(ret == 0){
                 printf("Forked\n");
+                reset_signal_handlers();
+                
+
+                sigemptyset(&mask);
+                sigaddset(&mask, SIGUSR1);
+                if (sigprocmask(SIG_SETMASK, &mask, NULL) == -1)
+                    return throw_err("Failed to block timer signal");
                 do_post_fork(v);
                 // reset_input_mode();
                 // set_input_mode();
@@ -444,7 +458,10 @@ int vm_run(vm_t *v)
                 sigemptyset(&sa.sa_mask);
                 if (sigaction(SIGUSR1, &sa, NULL) == -1)
                     return throw_err("Failed to create signal handler");
-                assert(sigaction(SIGUSR1, prefork_state->sigact, NULL) != -1);
+                flag = 1;
+                
+                // exit(0);
+                // assert(sigaction(SIGUSR1, prefork_state->sigact, NULL) != -1);
 
             } else {
                 // close(21);
@@ -452,7 +469,11 @@ int vm_run(vm_t *v)
                 // close(0);
                 // close(1);
                 // close(2);
+                pthread_mutex_lock(&child_done_mutex);
                 waitpid(ret, NULL, 0);
+                pthread_cond_broadcast(&child_done);
+                pthread_mutex_unlock(&child_done_mutex);
+
                 printf("master\n");
                 // exit(0);
                 // close(0);
@@ -460,9 +481,31 @@ int vm_run(vm_t *v)
                 // close(2);
             }
         }
+        
+        if(flag && ret == 0){
+            flag = 0;
+
+            if (sigprocmask(SIG_UNBLOCK, &mask, NULL) == -1)
+                return throw_err("Failed to unblock timer signal");
+            printf("unblocked\n");
+        }
+
+        int err = ioctl(v->vcpu_fd, KVM_RUN, 0);
+        if (err < 0 && (errno != EINTR && errno != EAGAIN)) {
+            munmap(run, run_size);
+            return throw_err("Failed to execute kvm_run");
+        }
+
+
+        // if (sigprocmask(SIG_UNBLOCK, &mask, NULL) == -1)
+        //     return throw_err("Failed to unblock timer signal");
+        
         switch (run->exit_reason) {
         case KVM_EXIT_IO:
             vm_handle_io(v, run);
+            
+
+            
             break;
         case KVM_EXIT_MMIO:
             vm_handle_mmio(v, run);

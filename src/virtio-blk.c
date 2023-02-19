@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/eventfd.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 #include "err.h"
@@ -46,6 +47,10 @@ static void *virtio_blk_thread(struct virtio_blk_dev *dev)
             }
         }
         if(did_fork){
+            if(!is_child){
+                // wait(NULL);
+                wait_for_child();
+            }
             if (virtio_blk_virtq_available(dev, -1))
                 pthread_kill((pthread_t) dev->vq_avail_thread, SIGUSR1);
         }

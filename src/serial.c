@@ -11,7 +11,7 @@
 #include "err.h"
 #include "serial.h"
 #include "utils.h"
-#include "vm.h""
+#include "vm.h"
 
 #define SERIAL_IRQ 4
 #define IO_READ8(data) *((uint8_t *) data)
@@ -78,16 +78,35 @@ static void *serial_thread(serial_dev_t *s)
 {
     int did_fork = 0;
     int is_child = 0;
+    int first_time_after_fork = 1;
+    int first_time_after_fork_child = 1;
+
     ski_forkall_thread_add_self_tid();
     while (!__atomic_load_n(&thread_stop, __ATOMIC_RELAXED)) {
-        if(!did_fork){
+        if(!did_fork) {
             ski_forkall_slave(&did_fork, &is_child);
             for(int i = 0; i < 3000; i++){
                 int j = 3 * 4 - 1;
             }
         } else if (did_fork){
+            if(!is_child && first_time_after_fork) {
+                // wait(NULL);
+                wait_for_child();
+                first_time_after_fork = 0;
+            } 
+
+            // find the new main tid
+            if (is_child && first_time_after_fork_child) {
+                s->main_tid = ski_forkall_thread_get_main_tid();
+                s->worker_tid = pthread_self();
+                first_time_after_fork_child = 0;
+            } 
             if (serial_readable(s, -1))
+            {
+                // sleep(2);
                 pthread_kill((pthread_t) s->main_tid, SIGUSR1);
+
+            }
         }
         
     }
@@ -219,10 +238,13 @@ int serial_init(serial_dev_t *s)
     // NEW CODE
     struct sigaction *sp = malloc(sizeof(struct sigaction));
     struct sigaction sa = {.sa_flags = SA_SIGINFO, .sa_sigaction = handler};
+    
+    sigemptyset(&sa.sa_mask);
+    
     memcpy(sp, &sa, sizeof(struct sigaction));
     prefork_state->sigact = sp;
 
-    sigemptyset(&sa.sa_mask);
+    
     if (sigaction(SIGUSR1, &sa, NULL) == -1)
         return throw_err("Failed to create signal handler");
     

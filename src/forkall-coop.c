@@ -1,6 +1,8 @@
 #include "forkall-coop.h"
 
 #include <asm/prctl.h>
+#include <bits/pthreadtypes.h>
+#include <pthread.h>
 #include <sys/prctl.h>
 #include <unistd.h>
 
@@ -27,6 +29,8 @@ int ski_forkall_round = 0;
 int ski_forkall_hypercall_done = 0;
 int ski_forkall_thread_pool_ready_fork = 0; 
 
+pthread_t ski_forkall_main_tid = 0;
+
 
 #pragma GCC push_options
 #pragma GCC optimize 0
@@ -47,6 +51,84 @@ static int ski_create_thread_custom_stack(forkall_thread *t, pthread_t *thread, 
 
 // Uncomment to enable debugging
 #define FORKALL_DEBUGGING
+
+pthread_cond_t child_done;
+pthread_mutex_t child_done_mutex;
+
+
+
+// add a conditional variable
+// conditional variable tells if the child is done with the work
+// write the api for the conditional variable
+// init the conditional variable
+void init_cond_var(){
+	// init the conditional variable
+
+	int ret = pthread_cond_init(&child_done, NULL);
+	if (ret != 0)
+		printf("Error: pthread_cond_init() failed");
+	
+	ret = pthread_mutex_init(&child_done_mutex, NULL);
+	if (ret != 0)
+		printf("Error: pthread_mutex_init() failed");
+
+
+	return;
+}
+
+void destroy_cond_var(){
+	// destroy the conditional variable
+	int rc = pthread_cond_destroy(&child_done);
+	if (rc != 0)
+		printf("Error: pthread_cond_destroy() failed");
+	
+	rc = pthread_mutex_destroy(&child_done_mutex);
+	if (rc != 0)
+		printf("Error: pthread_mutex_destroy() failed");
+
+	return;
+}
+
+void wait_for_child(){
+	// wait for the child to finish the work
+	int rc = pthread_mutex_lock(&child_done_mutex);
+	if (rc != 0)
+		printf("Error: pthread_mutex_lock() failed");
+	
+	rc = pthread_cond_wait(&child_done, &child_done_mutex);
+	if (rc != 0)
+		printf("Error: pthread_cond_wait() failed");
+	
+	rc = pthread_mutex_unlock(&child_done_mutex);
+	if (rc != 0)
+		printf("Error: pthread_mutex_unlock() failed");
+
+	return;
+}
+
+
+void signal_child_done(){
+	// signal that child is done
+	int rc = pthread_mutex_lock(&child_done_mutex);
+	if (rc != 0)
+		printf("Error: pthread_mutex_lock() failed");
+	
+	rc = pthread_cond_signal(&child_done);
+	if (rc != 0)
+		printf("Error: pthread_cond_signal() failed");
+	
+	rc = pthread_mutex_unlock(&child_done_mutex);
+	if (rc != 0)
+		printf("Error: pthread_mutex_unlock() failed");
+
+	return;
+}
+
+
+
+pthread_t ski_forkall_thread_get_main_tid(){
+	return ski_forkall_main_tid;
+}
 
 pid_t ski_gettid(void){
     pid_t own_tid = syscall(SYS_gettid);
@@ -452,6 +534,9 @@ pid_t ski_forkall_master(){
 		// We can now recreate all the threads (also need to release them)
 		ski_log_forkall("Child\n");
 
+		// set new main tid
+		ski_forkall_main_tid = pthread_self();
+
 		// Prevent child secondary threads from thinking they have been flaged to do another fork
 		forkall_forking = 0;
 
@@ -468,7 +553,6 @@ pid_t ski_forkall_master(){
 				ski_log_forkall("ERROR: Unable to create thread!!\n");
 				assert(0);
 			}
-
 			//sleep(2);
 			/*
 			ski_log_forkall("Sending signal to thread seq: %d\n", i);
@@ -495,6 +579,9 @@ pid_t ski_forkall_master(){
 void ski_forkall_initialize(void){
 	//forkall_nthreads = nthreads;
 	forkall_forking = 0;
+
+	init_cond_var();
+
 }
 
 

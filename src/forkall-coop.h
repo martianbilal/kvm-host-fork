@@ -93,7 +93,12 @@ int ski_forkall_thread_pool_ready_check();
 void ski_forkall_thread_pool_ready();
 void ski_forkall_thread_pool_not_ready();
 
+pthread_t ski_forkall_thread_get_main_tid();
+
 void ski_forkall_hypercall_ready();
+
+void wait_for_child();
+
 
 extern int ski_init_options_forkall_rounds;
 extern int ski_init_options_forkall_concurrency;
@@ -102,5 +107,9 @@ extern int ski_forkall_parent_simulate_child;
 
 extern int ski_forkall_hypercall_done;
 extern int ski_forkall_thread_pool_ready_fork; 
+
+extern pthread_cond_t child_done;
+extern pthread_mutex_t child_done_mutex;
+
 
 #endif
