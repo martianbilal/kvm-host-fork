@@ -53,7 +53,7 @@ static void serial_update_irq(serial_dev_t *s)
         iir = UART_IIR_THRI;
 
     priv->iir = iir | 0xc0;
-    // printf("\t\tserialupdateirq: %d\n", iir);
+    // printf("\tserialupdateirq: %d\n", iir);
 
     /* FIXME: the return error of vm_irq_line should be handled */
     vm_irq_line(container_of(s, vm_t, serial), SERIAL_IRQ,

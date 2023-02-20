@@ -69,7 +69,7 @@ static void *virtio_blk_vq_avail_handler(void *arg)
     int is_child = 0;
     int read_ret = 0;
     ski_forkall_thread_add_self_tid();
-    ski_forkall_slave(&did_fork, &is_child);
+    // ski_forkall_slave(&did_fork, &is_child);
     while (!read_ret) {
         if(!did_fork){
             ski_forkall_slave(&did_fork, &is_child);
