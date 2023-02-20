@@ -1,3 +1,4 @@
+#include <bits/stdint-uintn.h>
 #include "forkall-coop.h"
 
 #ifndef UTILS_H

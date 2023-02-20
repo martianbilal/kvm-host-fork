@@ -3,6 +3,8 @@
 #include <stdio.h>
 #include <sys/wait.h>
 #include "forkall-coop.h"
+#include "utils.h"
+
 #if !defined(__x86_64__) || !defined(__linux__)
 #error "This virtual machine requires Linux/x86_64."
 #endif
@@ -95,6 +97,7 @@ int prefork_init(){
     prefork_state->irqchip[0].chip_id = KVM_IRQCHIP_PIC_MASTER;
     prefork_state->irqchip[1].chip_id = KVM_IRQCHIP_PIC_SLAVE;
     prefork_state->irqchip[2].chip_id = KVM_IRQCHIP_IOAPIC;
+    prefork_state->pit2 = malloc(sizeof(struct kvm_pit_state2));
     return 0;
 }
 
@@ -296,6 +299,10 @@ int do_pre_fork(vm_t *v){
 
     prefork_kvm_irqchip(v);
 
+    if(ioctl(v->vm_fd, KVM_GET_PIT2, prefork_state->pit2) < 0)
+        exit(1);
+        // return throw_err("Failed to get pit2");
+
     // get kvm_regs
     if (ioctl(v->vcpu_fd, KVM_GET_REGS, regs) < 0){
         exit(1);
@@ -361,6 +368,10 @@ int do_post_fork(vm_t *v){
     
 
     postfork_kvm_irqchip(v);
+
+    if(ioctl(v->vm_fd, KVM_SET_PIT2, prefork_state->pit2) < 0)
+        exit(1);
+        // return throw_err("Failed to set pit2");
 
     // set irqfd
     if(ioctl(v->vm_fd, KVM_IRQFD, irqfd) < 0)
@@ -451,7 +462,7 @@ int do_post_fork(vm_t *v){
     if(run == MAP_FAILED)
         exit(1);
 
-    // memcpy(run, temp_run, run_size);
+    memcpy(run, temp_run, run_size);
 
 
     printf("[PRE]RUN_EXIT REASON = %d\n", run->exit_reason);
@@ -469,7 +480,26 @@ int do_post_fork(vm_t *v){
 void reset_input_mode();
 void set_input_mode();
 
+struct serial_dev_priv {
+    uint8_t dll;
+    uint8_t dlm;
+    uint8_t iir;
+    uint8_t ier;
+    uint8_t fcr;
+    uint8_t lcr;
+    uint8_t mcr;
+    uint8_t lsr;
+    uint8_t msr;
+    uint8_t scr;
 
+    struct fifo rx_buf;
+};
+
+void update_serial(serial_dev_t *s)
+{
+    struct serial_dev_priv *priv = (struct serial_dev_priv *)s->priv;
+    priv->lsr = 96; //unset 0 bit
+}
 
 int vm_run(vm_t *v)
 {
@@ -486,7 +516,7 @@ int vm_run(vm_t *v)
     while (1) {
         i = i + 1;
 
-        if(i == 10000){
+        if(i == 25000){
             do_pre_fork(v);
             ret = ski_forkall_master();
             if(ret == 0){
@@ -522,10 +552,17 @@ int vm_run(vm_t *v)
                 // close(0);
                 // close(1);
                 // close(2);
-                pthread_mutex_lock(&child_done_mutex);
+                // pthread_mutex_lock(&child_done_mutex);
+                // pthread_cond_broadcast(&child_done);
+                // pthread_mutex_unlock(&child_done_mutex);
+                printf("Waiting %d\n", ret);
+                sigemptyset(&mask);
+                sigaddset(&mask, SIGUSR1);
+                if (sigprocmask(SIG_SETMASK, &mask, NULL) == -1)
+                    return throw_err("Failed to block timer signal");
                 waitpid(ret, NULL, 0);
-                pthread_cond_broadcast(&child_done);
-                pthread_mutex_unlock(&child_done_mutex);
+                if (sigprocmask(SIG_UNBLOCK, &mask, NULL) == -1)
+                    return throw_err("Failed to unblock timer signal");
 
                 printf("master\n");
                 // exit(0);
@@ -541,6 +578,8 @@ int vm_run(vm_t *v)
             if (sigprocmask(SIG_UNBLOCK, &mask, NULL) == -1)
                 return throw_err("Failed to unblock timer signal");
             printf("unblocked\n");
+            // not needed
+            // update_serial(&v->serial);
         }
 
         int err = ioctl(v->vcpu_fd, KVM_RUN, 0);
@@ -550,9 +589,12 @@ int vm_run(vm_t *v)
         }
 
         if(!flag) {
-            if(i % 1000 == 0)
-                printf("[%d]reason: %d\n", i, run->exit_reason);
+            if(ret == 0){}
+                // printf("[%d][%d]reason: %d[vm : %d]\n", i, getpid(), run->exit_reason, v->vm_fd);
         }
+        // if(ret != 0)
+            // return 0;
+            // printf("[%d][%d]reason: %d\n", i, getpid(), run->exit_reason);
 
         // if (sigprocmask(SIG_UNBLOCK, &mask, NULL) == -1)
         //     return throw_err("Failed to unblock timer signal");
@@ -560,9 +602,6 @@ int vm_run(vm_t *v)
         switch (run->exit_reason) {
         case KVM_EXIT_IO:
             vm_handle_io(v, run);
-            
-
-            
             break;
         case KVM_EXIT_MMIO:
             vm_handle_mmio(v, run);
@@ -589,7 +628,7 @@ int vm_irq_line(vm_t *v, int irq, int level)
         {.irq = irq},
         .level = level,
     };
-
+    // printf("\tirq: %d, level: %d\n", irq, level);
     if (ioctl(v->vm_fd, KVM_IRQ_LINE, &irq_level) < 0)
         return throw_err("Failed to set the status of an IRQ line");
 

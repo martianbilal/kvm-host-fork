@@ -30,7 +30,7 @@ typedef  struct {
     struct kvm_irqfd *irqfd;
     struct sigaction *sigact;
     struct kvm_irqchip *irqchip;
-    struct kvm_pit_state2 pit2;
+    struct kvm_pit_state2 *pit2;
 } pre_fork_state_t;
 
 pre_fork_state_t *prefork_state;

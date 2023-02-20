@@ -53,6 +53,7 @@ static void serial_update_irq(serial_dev_t *s)
         iir = UART_IIR_THRI;
 
     priv->iir = iir | 0xc0;
+    // printf("\t\tserialupdateirq: %d\n", iir);
 
     /* FIXME: the return error of vm_irq_line should be handled */
     vm_irq_line(container_of(s, vm_t, serial), SERIAL_IRQ,
@@ -91,12 +92,13 @@ static void *serial_thread(serial_dev_t *s)
         } else if (did_fork){
             if(!is_child && first_time_after_fork) {
                 // wait(NULL);
-                wait_for_child();
+                // wait_for_child();
                 first_time_after_fork = 0;
             } 
 
             // find the new main tid
             if (is_child && first_time_after_fork_child) {
+                printf("child: %d", getpid());
                 s->main_tid = ski_forkall_thread_get_main_tid();
                 s->worker_tid = pthread_self();
                 first_time_after_fork_child = 0;
@@ -118,18 +120,26 @@ void serial_console(serial_dev_t *s)
 {
     struct serial_dev_priv *priv = (struct serial_dev_priv *) s->priv;
 
-    if (priv->lsr & UART_LSR_DR || !fifo_is_empty(&priv->rx_buf))
+    // printf("[%d]serial_console: %d", getpid(), priv->lsr);
+    if (priv->lsr & UART_LSR_DR || !fifo_is_empty(&priv->rx_buf)){
+        // printf("returning=--==-==\n");
         return;
+    }
 
     while (!fifo_is_full(&priv->rx_buf) && serial_readable(s, 0)) {
         char c;
         if (read(s->infd, &c, 1) == -1)
             break;
+        // printf("read: %c", c);
         if (!fifo_put(&priv->rx_buf, c))
             break;
+        // printf("put: %c", c);
+
         priv->lsr |= UART_LSR_DR;
+        
     }
-    printf("serial_console: %d", priv->lsr);
+    
+    // printf("[%d]serial_console\n", getpid());
     serial_update_irq(s);
 }
 

@@ -42,14 +42,14 @@ static void *virtio_blk_thread(struct virtio_blk_dev *dev)
     while (!__atomic_load_n(&thread_stop, __ATOMIC_RELAXED)) {
         if(!did_fork){
             ski_forkall_slave(&did_fork, &is_child);
-            for(int i = 0; i < 3000; i++){
+            for(int i = 0; i < 30; i++){
                 int j = 3 * 4 - 1;
             }
         }
         if(did_fork){
             if(!is_child){
                 // wait(NULL);
-                wait_for_child();
+                // wait_for_child();
             }
             if (virtio_blk_virtq_available(dev, -1))
                 pthread_kill((pthread_t) dev->vq_avail_thread, SIGUSR1);
@@ -67,15 +67,21 @@ static void *virtio_blk_vq_avail_handler(void *arg)
     uint64_t n;
     int did_fork = 0;
     int is_child = 0;
+    int read_ret = 0;
     ski_forkall_thread_add_self_tid();
-    while (read(dev->ioeventfd, &n, sizeof(n))) {
+    ski_forkall_slave(&did_fork, &is_child);
+    while (!read_ret) {
         if(!did_fork){
             ski_forkall_slave(&did_fork, &is_child);
-            for(int i = 0; i < 3000; i++){
+            for(int i = 0; i < 30; i++){
                 int j = 3 * 4 - 1;
             }
         }
         if(did_fork){
+            read_ret = read(dev->ioeventfd, &n, sizeof(n));
+            if(!read_ret){
+                continue;
+            }
             virtq_handle_avail(vq);
         }
     }
