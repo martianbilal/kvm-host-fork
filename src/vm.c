@@ -774,7 +774,7 @@ int vm_run(vm_t *v)
 
         // if(i == 24095){
         // if(i == 23000){
-        if(thread_count == 2 && !did_fork){
+        if(thread_count == 2 && !did_fork && i > 1000){
             do_pre_fork(v);
             ret = ski_forkall_master();
             did_fork = 1;
