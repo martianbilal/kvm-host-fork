@@ -3,9 +3,9 @@
 #include <stdio.h>
 #include <sys/wait.h>
 #include <sys/eventfd.h>
-
 #include "forkall-coop.h"
 #include "utils.h"
+#include "verify_state.h"
 
 #if !defined(__x86_64__) || !defined(__linux__)
 #error "This virtual machine requires Linux/x86_64."
@@ -65,7 +65,7 @@ void reset_signal_handlers() {
   struct sigaction sa = {0};
   sa.sa_handler = SIG_DFL;  // Set signal handler to default (ignore).
   sigemptyset(&sa.sa_mask);
-  sigaction(SIGUSR1, &sa, NULL); // Replace SIGINT handler with default.
+  sigaction(SIGUSR1, &sa, NULL); // Replace SIGUSR1 handler with default.
   // Add more signals as needed.
 }
 
@@ -100,6 +100,16 @@ int prefork_init(){
     prefork_state->irqchip[1].chip_id = KVM_IRQCHIP_PIC_SLAVE;
     prefork_state->irqchip[2].chip_id = KVM_IRQCHIP_IOAPIC;
     prefork_state->pit2 = malloc(sizeof(struct kvm_pit_state2));
+    prefork_state->cpuid = malloc(sizeof(struct kvm_cpuid));
+    prefork_state->fpu = malloc(sizeof(struct kvm_fpu));
+    prefork_state->xsave = malloc(sizeof(struct kvm_xsave));
+    prefork_state->events = malloc(sizeof(struct kvm_vcpu_events));
+    prefork_state->lapic = malloc(sizeof(struct kvm_lapic_state));
+    prefork_state->xcrs = malloc(sizeof(struct kvm_xcrs));
+    prefork_state->clock_data = malloc(sizeof(struct kvm_clock_data));
+    prefork_state->mp_state = malloc(sizeof(struct kvm_mp_state));
+    prefork_state->debugregs = malloc(sizeof(struct kvm_debugregs));
+    prefork_state->msrs = malloc(sizeof(struct kvm_msrs));
     return 0;
 }
 
@@ -126,8 +136,7 @@ int vm_init(vm_t *v)
     if (ioctl(v->vm_fd, KVM_CREATE_PIT2, &pit) < 0)
         return throw_err("Failed to create i8254 interval timer");
 
-    v->mem = mmap(NULL, RAM_SIZE, PROT_READ | PROT_WRITE,
-                  MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    v->mem = mmap(NULL, RAM_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     
     if (!v->mem)
         return throw_err("Failed to mmap vm memory");
@@ -256,6 +265,7 @@ void vm_handle_io(vm_t *v, struct kvm_run *run)
     bool is_write = run->io.direction == KVM_EXIT_IO_OUT;
 
     if (run->io.port >= COM1_PORT_BASE && run->io.port < COM1_PORT_END) {
+        // printf("\tserial: %c\n", *(char *) data);
         serial_handle(&v->serial, run);
     } else {
         for (int i = 0; i < run->io.count; i++) {
@@ -267,6 +277,8 @@ void vm_handle_io(vm_t *v, struct kvm_run *run)
 
 void vm_handle_mmio(vm_t *v, struct kvm_run *run)
 {
+    printf("MMIO: %s %llx %x\n", run->mmio.is_write ? "write" : "read",
+           run->mmio.phys_addr, run->mmio.len);
     bus_handle_io(&v->mmio_bus, run->mmio.data, run->mmio.is_write,
                   run->mmio.phys_addr, run->mmio.len);
 }
@@ -358,7 +370,7 @@ int postfork_kvm_irqchip(vm_t *v){
             exit(1);
         }
     }
-    get_irqchip(v);
+    // get_irqchip(v);
     // print_irqchips_state();
     return 0;
 }
@@ -374,6 +386,12 @@ int do_pre_fork(vm_t *v){
         exit(1);
         // return throw_err("Failed to get pit2");
 
+    // if(ioctl(v->vcpu_fd, KVM_GET_CPUID2, prefork_state->cpuid)){
+    //     printf("Failed to get cpuid2\n");
+    //     exit(1);
+    //     // return throw_err("Failed to get cpuid2");
+    // }
+
     // get kvm_regs
     if (ioctl(v->vcpu_fd, KVM_GET_REGS, regs) < 0){
         exit(1);
@@ -384,9 +402,66 @@ int do_pre_fork(vm_t *v){
         // return throw_err("Failed to get sregs");
 
 
+
+    // ----------------- save the byproduct state -----------------
+    if (ioctl(v->vcpu_fd, KVM_GET_FPU, prefork_state->fpu) < 0) {
+        printf("Failed to get fpu");
+        exit(1);
+    }
+        // return throw_err("Failed to get fpu");
+    
+    if (ioctl(v->vcpu_fd, KVM_GET_LAPIC, prefork_state->lapic) < 0){
+        printf("Failed to get lapic");
+        exit(1);
+    }
+        // return throw_err("Failed to get lapic");
+    
+    if (ioctl(v->vcpu_fd, KVM_GET_XSAVE, prefork_state->xsave) < 0){
+        printf("Failed to get xsave");
+        exit(1);
+    }
+    
+    if (ioctl(v->vcpu_fd, KVM_GET_XCRS, prefork_state->xcrs) < 0){
+        printf("Failed to get xcrs");
+        exit(1);
+    }
+    
+    if (ioctl(v->vcpu_fd, KVM_GET_VCPU_EVENTS, prefork_state->events) < 0){
+        printf("Failed to get vcpu_events");
+        exit(1);
+    }
+
+    if (ioctl(v->vcpu_fd, KVM_GET_DEBUGREGS, prefork_state->debugregs) < 0){
+        printf("Failed to get debugregs");
+        exit(1);
+    }
+
+    if (ioctl(v->vcpu_fd, KVM_GET_MP_STATE, prefork_state->mp_state) < 0){
+        printf("Failed to get mp_state");
+        exit(1);
+    }
+    
+    if (ioctl(v->vm_fd, KVM_GET_CLOCK, prefork_state->clock_data) < 0){
+        printf("Failed to get clock_data");
+        exit(1);
+    }
+        // return throw_err("Failed to get xsave");
+    if(ioctl(v->vcpu_fd, KVM_GET_DEBUGREGS, prefork_state->debugregs) < 0){
+        printf("Failed to get debugregs");
+        exit(1);
+    }
+
+    if(ioctl(v->vcpu_fd, KVM_GET_MSRS, prefork_state->msrs) < 0){
+        printf("Failed to get msrs");
+        exit(1);
+    }
+
+    // ----------------- save the byproduct state -----------------
+
     prefork_state->regs = regs;
     prefork_state->sregs = sregs;
     prefork_state->pit2 = pit2;
+
     
     return 0;
 }
@@ -399,12 +474,17 @@ int do_post_fork(vm_t *v){
     struct kvm_irqfd *irqfd = prefork_state->irqfd;
     struct kvm_ioeventfd *ioeventfd = prefork_state->ioeventfd;
     
-    close(irqfd->fd);
-    irqfd->fd = eventfd(0, EFD_CLOEXEC);
+    // int temp_fd = 0;
+    // close(irqfd->fd);
+    // irqfd->fd = eventfd(0, EFD_CLOEXEC);
     
-    close(ioeventfd->fd);
-    ioeventfd->fd = eventfd(0, EFD_CLOEXEC);
-
+    // temp_fd = ioeventfd->fd;
+    // close(ioeventfd->fd);
+    // ioeventfd->fd = eventfd(0, EFD_CLOEXEC);
+    // if(ioeventfd->fd != temp_fd){
+    //     printf("ioeventfd->fd != temp_fd");
+    //     exit(1);
+    // }
     
 
     close(v->kvm_fd);
@@ -424,17 +504,24 @@ int do_post_fork(vm_t *v){
     if (ioctl(v->vm_fd, KVM_SET_IDENTITY_MAP_ADDR, &map_addr) < 0)
         return throw_err("Failed to set identity map address");
 
-    if (ioctl(v->vm_fd, KVM_CREATE_IRQCHIP, 0) < 0)
+    if (ioctl(v->vm_fd, KVM_CREATE_IRQCHIP, 0) < 0){
+        printf("Failed to create irqchip\n");
         exit(1);
+    }
 
     struct kvm_pit_config pit = {.flags = 0};
-    if (ioctl(v->vm_fd, KVM_CREATE_PIT2, &pit) < 0)
+    if (ioctl(v->vm_fd, KVM_CREATE_PIT2, &pit) < 0){
+        printf("Failed to create pit2");
         exit(1);
+    }
 
+    // void *temp_mem = v->mem;
     // v->mem = mmap(NULL, RAM_SIZE, PROT_READ | PROT_WRITE,
     //               MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     // if (!v->mem)
     //     return throw_err("Failed to mmap vm memory");
+
+    // memcpy(v->mem, temp_mem, RAM_SIZE);
 
     struct kvm_userspace_memory_region region = {
         .slot = 0,
@@ -443,16 +530,27 @@ int do_post_fork(vm_t *v){
         .memory_size = RAM_SIZE,
         .userspace_addr = (__u64) v->mem,
     };
-    if (ioctl(v->vm_fd, KVM_SET_USER_MEMORY_REGION, &region) < 0)
+    if (ioctl(v->vm_fd, KVM_SET_USER_MEMORY_REGION, &region) < 0) {
+        printf("Failed to set user memory region\n");
         exit(1);
+    }
         // return throw_err("Failed to set user memory region");
     
 
     postfork_kvm_irqchip(v);
 
-    if(ioctl(v->vm_fd, KVM_SET_PIT2, prefork_state->pit2) < 0)
+    if(ioctl(v->vm_fd, KVM_SET_PIT2, prefork_state->pit2) < 0){
+        printf("Failed to set pit2\n");
         exit(1);
+    }
         // return throw_err("Failed to set pit2");
+
+    prefork_state->clock_data->flags = 0;
+    if(ioctl(v->vm_fd, KVM_SET_CLOCK, prefork_state->clock_data) < 0) {
+        printf("Failed to set clock_dat\n");
+        exit(1);
+    }
+
 
     // set irqfd
     if(ioctl(v->vm_fd, KVM_IRQFD, irqfd) < 0)
@@ -460,21 +558,37 @@ int do_post_fork(vm_t *v){
 
     // set ioeventfd
     // not needed until avail_thread is created
-    if(ioctl(v->vm_fd, KVM_IOEVENTFD, ioeventfd) < 0)
-        return throw_err("Failed to set ioeventfd");
+    // if(ioctl(v->vm_fd, KVM_IOEVENTFD, ioeventfd) < 0)
+    //     return throw_err("Failed to set ioeventfd");
 
 
     if ((v->vcpu_fd = ioctl(v->vm_fd, KVM_CREATE_VCPU, 0)) < 0)
         return throw_err("Failed to create vcpu");
     
 
+    int run_size = ioctl(v->kvm_fd, KVM_GET_VCPU_MMAP_SIZE, 0);
+    struct kvm_run *temp_run = run;
+    
+    run = mmap(0, run_size, PROT_READ | PROT_WRITE, MAP_SHARED, v->vcpu_fd, 0);
+    if(run == MAP_FAILED){
+        printf("Failed to mmap run\n");
+        exit(1);
+    }
+    // printf("run->mmio.phys_addr = %llx\n", run->mmio.phys_addr);
+
+    memcpy(run, temp_run, run_size);
+    // memset(run, 0, run_size);
+    printf("===========Init cpu id=========================\n");
 
 
-
-
-
-    // need to this before set kvm_regs and sregs to create a usable cpu
+    // ioctl(v->vcpu_fd, KVM_RUN, 0);
+    // need to do this before set kvm_regs and sregs to create a usable cpu
     vm_init_cpu_id(v);
+
+    // if(ioctl(v->vcpu_fd, KVM_SET_CPUID2, prefork_state->cpuid) < 0){
+    //     printf("Failed to set cpuid2\n");
+    //     exit(1);
+    // }
 
 
 
@@ -505,11 +619,7 @@ int do_post_fork(vm_t *v){
     // }
     // sregs->cs.l = temp;
 
-    if (ioctl(v->vcpu_fd, KVM_SET_SREGS, sregs) < 0){
-        printf("[SECOND][]====Failed to set sregs======\n");
-        exit(1);
-    }
-
+ 
 
     // while (ioctl(v->vcpu_fd, KVM_SET_SREGS, &temp_sregs) >= 0) {}
 
@@ -527,27 +637,88 @@ int do_post_fork(vm_t *v){
     // if (ioctl(v->vcpu_fd, KVM_GET_SREGS, sregs) < 0)
         // return throw_err("Failed to set sregs");
 
+
+    if (ioctl(v->vcpu_fd, KVM_SET_XSAVE, prefork_state->xsave)){
+        printf("Failed to set xsave\n");
+        exit(1);
+    }
+
+
     // vm_init_regs(v);
     // set kvm_regs
-    if (ioctl(v->vcpu_fd, KVM_SET_REGS, regs) < 0)
-        return throw_err("Failed to set regs");
-    
-   
-
-
-    
-    
-    
-    int run_size = ioctl(v->kvm_fd, KVM_GET_VCPU_MMAP_SIZE, 0);
-    struct kvm_run *temp_run = run;
-    
-    run = mmap(0, run_size, PROT_READ | PROT_WRITE, MAP_SHARED, v->vcpu_fd, 0);
-    if(run == MAP_FAILED)
+    // regs->rip = regs->rip + 0x1;
+    if (ioctl(v->vcpu_fd, KVM_SET_REGS, regs) < 0){
+        printf("Failed to set regs\n");
         exit(1);
+    }
+    
+    
+    if (ioctl(v->vcpu_fd, KVM_SET_FPU, prefork_state->fpu) < 0){
+        printf("Failed to set fpu\n");
+        exit(1);
+    }
 
-    // memcpy(run, temp_run, run_size);
-    // memset(run, 0, run_size);
+    if (ioctl(v->vcpu_fd, KVM_SET_MSRS, prefork_state->msrs)){
+        printf("Failed to set msrs\n");
+        exit(1);
+    }
+    // struct kvm_sregs *temp_sregs;
+    // temp_sregs = malloc(sizeof(struct kvm_sregs));
+    // memcpy(temp_sregs, sregs, sizeof(struct kvm_sregs));
 
+    // temp_sregs->ds.g = 1;
+    // if (ioctl(v->vcpu_fd, KVM_SET_SREGS, temp_sregs) < 0){
+    //     printf("[SECOND][]====Failed to set sregs======\n");
+    //     exit(1);
+    // }
+
+    if (ioctl(v->vcpu_fd, KVM_SET_SREGS, sregs) < 0){
+        printf("[SECOND][]====Failed to set sregs======\n");
+        exit(1);
+    }
+
+
+    if (ioctl(v->vcpu_fd, KVM_SET_VCPU_EVENTS, prefork_state->events) < 0){
+        printf("Failed to set vcpu_events\n");
+        exit(1);
+    }
+    
+    // if(ioctl(v->vcpu_fd, KVM_SET_LAPIC, prefork_state->lapic) < 0){
+    //     printf("Failed to set lapic\n");
+    //     exit(1);
+    // }
+
+    if (ioctl(v->vcpu_fd, KVM_SET_XCRS, prefork_state->xcrs) < 0){
+        printf("Failed to set xcrs\n");
+        exit(1);
+    }
+
+
+
+    if (ioctl(v->vcpu_fd, KVM_SET_MP_STATE, prefork_state->mp_state) < 0){
+        printf("Failed to set mp_state\n");
+        exit(1);
+    }
+
+    if (ioctl(v->vcpu_fd, KVM_SET_DEBUGREGS, prefork_state->debugregs) < 0){
+        printf("Failed to set debug_regs\n");
+        exit(1);
+    }
+
+    // if (ioctl(v->vcpu_fd, KVM_SET_REGS, regs) < 0){
+    //     printf("Failed to set regs\n");
+    //     exit(1);
+    // }
+    
+    // printf("sregs->ds.db = %hhx\n", sregs->ds.db);
+    // if (ioctl(v->vcpu_fd, KVM_SET_SREGS, sregs) < 0){
+    //     printf("[SECOND][]====Failed to set sregs======\n");
+    //     exit(1);
+    // }
+    
+    
+ 
+    compare_state(v->vm_fd, v->vcpu_fd, prefork_state);
 
     printf("[PRE]RUN_EXIT REASON = %d\n", run->exit_reason);
     // ioctl(v->vcpu_fd, KVM_RUN, 0);
@@ -596,16 +767,20 @@ int vm_run(vm_t *v)
 
     int i = 0;
     int flag = 0;
+    int did_fork = 0;
     
     while (1) {
         i = i + 1;
 
         // if(i == 24095){
-        if(i == 24000){
+        // if(i == 23000){
+        if(thread_count == 2 && !did_fork){
             do_pre_fork(v);
             ret = ski_forkall_master();
+            did_fork = 1;
             if(ret == 0){
                 printf("Forked\n");
+                ski_forkall_patch_thread_references();
                 reset_signal_handlers();
                 
 
@@ -613,7 +788,14 @@ int vm_run(vm_t *v)
                 sigaddset(&mask, SIGUSR1);
                 if (sigprocmask(SIG_SETMASK, &mask, NULL) == -1)
                     return throw_err("Failed to block timer signal");
+                
+                struct sigaction sa = {.sa_flags = SA_SIGINFO, .sa_sigaction = handler};
+                sigemptyset(&sa.sa_mask);
+                if (sigaction(SIGUSR1, &sa, NULL) == -1)
+                    return throw_err("Failed to create signal handler");
+                printf("=================Post fork starting====================\n");
                 do_post_fork(v);
+                printf("=================Post fork ended====================\n");
                 // reset_input_mode();
                 // set_input_mode();
                 // exit(0);
@@ -621,10 +803,7 @@ int vm_run(vm_t *v)
                 // reset_input_mode();
                 // serial_exit(&v->serial);
                 // serial_init(&v->serial);
-                struct sigaction sa = {.sa_flags = SA_SIGINFO, .sa_sigaction = handler};
-                sigemptyset(&sa.sa_mask);
-                if (sigaction(SIGUSR1, &sa, NULL) == -1)
-                    return throw_err("Failed to create signal handler");
+               
                 if (sigprocmask(SIG_UNBLOCK, &mask, NULL) == -1)
                     return throw_err("Failed to unblock timer signal");
 
@@ -668,7 +847,7 @@ int vm_run(vm_t *v)
         //     // not needed
         //     // update_serial(&v->serial);
         // }
-
+        // do_post_fork(v);
         int err = ioctl(v->vcpu_fd, KVM_RUN, 0);
         if (err < 0 && (errno != EINTR && errno != EAGAIN)) {
             munmap(run, run_size);
@@ -683,9 +862,11 @@ int vm_run(vm_t *v)
         // if(i%1000 == 0){
             // printf("[%d][%d]reason: %d[vm : %d]\n", i, getpid(), run->exit_reason, v->vm_fd);
         // }
-        // if(ret != 0)
+        // if(ret == 0){
+            // printf("[%d][%d]reason: %d, [port: %d], [in : %d]\n", i, getpid(), run->exit_reason, run->io.port, run->io.direction);
+            
+        // }
             // return 0;
-            // printf("[%d][%d]reason: %d\n", i, getpid(), run->exit_reason);
 
         // if (sigprocmask(SIG_UNBLOCK, &mask, NULL) == -1)
         //     return throw_err("Failed to unblock timer signal");

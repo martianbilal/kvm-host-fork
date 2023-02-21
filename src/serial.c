@@ -89,6 +89,12 @@ static void *serial_thread(serial_dev_t *s)
             for(int i = 0; i < 3000; i++){
                 int j = 3 * 4 - 1;
             }
+            if (serial_readable(s, 10))
+            {
+                // sleep(2);
+                pthread_kill((pthread_t) s->main_tid, SIGUSR1);
+
+            }
         } else if (did_fork){
             if(!is_child && first_time_after_fork) {
                 // wait(NULL);
@@ -99,8 +105,8 @@ static void *serial_thread(serial_dev_t *s)
             // find the new main tid
             if (is_child && first_time_after_fork_child) {
                 printf("child: %d", getpid());
-                s->main_tid = ski_forkall_thread_get_main_tid();
-                s->worker_tid = pthread_self();
+                // s->main_tid = ski_forkall_thread_get_main_tid();
+                // s->worker_tid = pthread_self();
                 first_time_after_fork_child = 0;
             } 
             if (serial_readable(s, -1))
@@ -288,7 +294,9 @@ void serial_handle(serial_dev_t *s, struct kvm_run *r)
     void *data = (uint8_t *) r + r->io.data_offset;
     void (*serial_op)(serial_dev_t *, uint16_t, void *) =
         (r->io.direction == KVM_EXIT_IO_OUT) ? serial_out : serial_in;
-
+    // if(r->io.port == 1021 || r->io.port == 1017){
+        // printf("serial_handle: port: %d, count: %d, size: %d, direction: %d\n", r->io.port, r->io.count, r->io.size, r->io.direction);
+    // }
     uint32_t c = r->io.count;
     for (uint16_t off = r->io.port - COM1_PORT_BASE; c--; data += r->io.size)
         serial_op(s, off, data);

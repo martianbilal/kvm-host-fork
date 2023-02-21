@@ -1,5 +1,6 @@
 #include <fcntl.h>
 #include <poll.h>
+#include <pthread.h>
 #include <signal.h>
 #include <stddef.h>
 #include <stdlib.h>
@@ -13,6 +14,8 @@
 #include "utils.h"
 #include "virtio-blk.h"
 #include "vm.h"
+
+pthread_t avail_thread;
 
 static void virtio_blk_notify_used(struct virtq *vq)
 {
@@ -38,6 +41,7 @@ static void *virtio_blk_thread(struct virtio_blk_dev *dev)
 {
     int did_fork = 0;
     int is_child = 0;
+    int first_time = 1;
     ski_forkall_thread_add_self_tid();
     while (!__atomic_load_n(&thread_stop, __ATOMIC_RELAXED)) {
         if(!did_fork){
@@ -45,14 +49,28 @@ static void *virtio_blk_thread(struct virtio_blk_dev *dev)
             for(int i = 0; i < 30; i++){
                 int j = 3 * 4 - 1;
             }
+            if (virtio_blk_virtq_available(dev, 10)){
+                printf("=====virtio_blk_virtq_available SIGNALLED SIGUSR1\n");
+                fflush(stdout);
+                pthread_kill((pthread_t) dev->vq_avail_thread, SIGUSR1);                
+            }
         }
         if(did_fork){
+            if(first_time){
+                first_time = 0;
+                // dev->vq_avail_thread = avail_thread;
+                // dev->worker_thread = pthread_self();
+                // continue;
+            }
             if(!is_child){
                 // wait(NULL);
                 // wait_for_child();
             }
-            if (virtio_blk_virtq_available(dev, -1))
-                pthread_kill((pthread_t) dev->vq_avail_thread, SIGUSR1);
+            if (virtio_blk_virtq_available(dev, -1)){
+                printf("=====virtio_blk_virtq_available SIGNALLED SIGUSR1\n");
+                fflush(stdout);
+                pthread_kill((pthread_t) dev->vq_avail_thread, SIGUSR1);                
+            }
         }
 
     }
@@ -68,6 +86,7 @@ static void *virtio_blk_vq_avail_handler(void *arg)
     int did_fork = 0;
     int is_child = 0;
     int read_ret = 0;
+    int first_time = 1;
     ski_forkall_thread_add_self_tid();
     // ski_forkall_slave(&did_fork, &is_child);
     while (!read_ret) {
@@ -76,12 +95,28 @@ static void *virtio_blk_vq_avail_handler(void *arg)
             for(int i = 0; i < 30; i++){
                 int j = 3 * 4 - 1;
             }
+            // read_ret = read(dev->ioeventfd, &n, sizeof(n));
+            // if(!read_ret){
+            //     continue;
+            // }
+            // printf("read_ret: %d\n", read_ret);
+            // virtq_handle_avail(vq);
+            // printf("avail handler thread_id : %lu", pthread_self());
         }
         if(did_fork){
+            if(first_time){
+                first_time = 0;
+                // avail_thread = pthread_self();
+                // sleep(2);
+                // continue;
+                // printf("AFTER FORK avail handler thread_id : %lu", pthread_self());
+
+            }
             read_ret = read(dev->ioeventfd, &n, sizeof(n));
             if(!read_ret){
                 continue;
             }
+            printf("read_ret: %d\n", read_ret);
             virtq_handle_avail(vq);
         }
     }
@@ -110,6 +145,7 @@ static void virtio_blk_enable_vq(struct virtq *vq)
                 //    (void *) vq);
     ski_forkall_pthread_create(&dev->vq_avail_thread, NULL, virtio_blk_vq_avail_handler,
                    (void *) vq);
+    avail_thread = dev->vq_avail_thread;
 }
 
 static ssize_t virtio_blk_write(struct virtio_blk_dev *dev,

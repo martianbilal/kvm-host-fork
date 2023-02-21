@@ -88,6 +88,9 @@ int ski_forkall_pthread_kill(pthread_t thread, int sig);
 int ski_forkall_pthread_create(pthread_t *thread, const pthread_attr_t *attr, void *(*start_routine) (void *), void *arg);
 int ski_forkall_timeval_subtract(struct timeval *result, struct timeval *t2, struct timeval *t1);
 
+
+void ski_forkall_patch_thread_references(void);
+
 // returns 1 if ready 1 otherwise 0
 int ski_forkall_thread_pool_ready_check();
 void ski_forkall_thread_pool_ready();
@@ -110,6 +113,8 @@ extern int ski_forkall_thread_pool_ready_fork;
 
 extern pthread_cond_t child_done;
 extern pthread_mutex_t child_done_mutex;
+
+extern int thread_count;
 
 
 #endif

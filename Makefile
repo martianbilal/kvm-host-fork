@@ -20,6 +20,7 @@ OBJS := \
 	virtio-blk.o \
 	diskimg.o \
 	forkall-coop.o \
+	verify_state.o \
 	main.o
 OBJS := $(addprefix $(OUT)/,$(OBJS))
 deps := $(OBJS:%.o=%.o.d)
@@ -42,11 +43,21 @@ $(OUT)/ext4.img:
 
 check: $(BIN) $(LINUX_IMG) $(ROOTFS_IMG) $(OUT)/ext4.img
 	$(VECHO) "\nOnce the message 'Kernel panic' appears, press Ctrl-C to exit\n\n"
-	$(BIN) -k $(LINUX_IMG) -i $(ROOTFS_IMG) -d $(OUT)/ext4.img
+	$(BIN) -k $(LINUX_IMG) -i $(ROOTFS_IMG) -d $(OUT)/ext4.img 2>&1 | tee vm.log
 
 check_test: $(BIN) $(LINUX_IMG) $(ROOTFS_IMG) $(OUT)/ext4.img
 	$(VECHO) "\nOnce the message 'Kernel panic' appears, press Ctrl-C to exit\n\n"
 	$(BIN) -k $(LINUX_IMG) -d $(OUT)/ext4.img
+
+check_min: $(BIN) $(LINUX_IMG) $(ROOTFS_IMG) $(OUT)/ext4.img
+	$(VECHO) "\nOnce the message 'Kernel panic' appears, press Ctrl-C to exit\n\n"
+	$(BIN) -k $(LINUX_IMG) -i $(ROOTFS_IMG) | tee vm.log
+
+
+run_two_threads: $(BIN) $(LINUX_IMG) $(ROOTFS_IMG) $(OUT)/ext4.img
+	$(VECHO) "\nOnce the message 'Kernel panic' appears, press Ctrl-C to exit\n\n"
+	$(BIN) -k $(TINYKERNEL)/arch/x86/boot/bzImage -i $(ROOTFS_IMG) -d $(OUT)/ext4.img | tee vm.log
+
 
 clean:
 	$(VECHO) "Cleaning...\n"

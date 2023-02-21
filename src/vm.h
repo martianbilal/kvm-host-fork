@@ -1,6 +1,7 @@
 #pragma once
 
 #include <asm/kvm.h>
+#include <bits/stdint-uintn.h>
 #define RAM_SIZE (1 << 30)
 #define KERNEL_OPTS "console=ttyS0 pci=conf1"
 
@@ -31,6 +32,18 @@ typedef  struct {
     struct sigaction *sigact;
     struct kvm_irqchip *irqchip;
     struct kvm_pit_state2 *pit2;
+    struct kvm_cpuid *cpuid;
+    /* -----Byproduct State | HyperFORK----- */
+    struct kvm_fpu *fpu;
+    struct kvm_msrs *msrs;
+    struct kvm_xsave *xsave;
+    struct kvm_vcpu_events *events;
+    struct kvm_lapic_state *lapic;
+    struct kvm_xcrs *xcrs;
+    struct kvm_clock_data *clock_data;
+    struct kvm_mp_state *mp_state;
+    struct kvm_debugregs *debugregs;
+    uint32_t tsc_khz; /* TODO: array? */
 } pre_fork_state_t;
 
 pre_fork_state_t *prefork_state;

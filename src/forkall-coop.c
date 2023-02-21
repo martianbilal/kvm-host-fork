@@ -12,7 +12,7 @@
 //static struct pt_regs dummy2;
 
 static forkall_thread forkall_threads[FORKALL_MAX_THREADS];
-static int thread_count = 0;
+int thread_count = 0;
 
 static pthread_mutex_t forkall_mutex = PTHREAD_MUTEX_INITIALIZER;
 static int forkall_forking = 0;
@@ -129,6 +129,12 @@ void signal_child_done(){
 pthread_t ski_forkall_thread_get_main_tid(){
 	return ski_forkall_main_tid;
 }
+
+/**
+	Functions specific to viritio blk driver
+*/
+
+
 
 pid_t ski_gettid(void){
     pid_t own_tid = syscall(SYS_gettid);
@@ -640,7 +646,10 @@ static int ski_create_thread_custom_stack(forkall_thread *t, pthread_t *thread, 
 
 	ski_log_forkall("Launching new thread\n");
 	/* address and size specified */
+	printf("======= %lu ==== ORIGINAL thread ID\n", pthread_self());
 	ret = pthread_create(thread, attr, start_routine, arg);
+	printf("======= %lu ==== pthread_create returned %d", *thread, ret);
+	printf("======= %lu ==== pthread_create returned %d", pthread_self(), ret);
 	// ski_log_forkall("returned from pthread! with ret = %d\n", ret);
 	assert(ret == 0);
 	

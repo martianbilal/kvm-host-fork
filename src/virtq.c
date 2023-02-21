@@ -58,6 +58,7 @@ struct vring_packed_desc *virtq_get_avail(struct virtq *vq)
 
 void virtq_handle_avail(struct virtq *vq)
 {
+    printf("virtq_handle_avail===\n");
     if (!vq->info.enable)
         return;
     virtq_complete_request(vq);
